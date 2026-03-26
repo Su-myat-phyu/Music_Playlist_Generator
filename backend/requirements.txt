@@ -1,0 +1,15 @@
+fastapi
+uvicorn[standard]
+requests
+python-dotenv
+pymongo
+pandas
+numpy
+scikit-learn
+spotipy
+python-jose[cryptography]
+passlib[bcrypt]
+httpx
+google-auth
+google-auth-oauthlib
+google-auth-httplib2
