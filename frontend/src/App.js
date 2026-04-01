@@ -56,12 +56,28 @@ function App() {
   const [currentSongId, setCurrentSongId] = useState(null);
   const [isPlaying, setIsPlaying] = useState(false);
 
+  // Check if token is expired
+  const isTokenExpired = (tokenStr) => {
+    try {
+      const payload = JSON.parse(atob(tokenStr.split('.')[1]));
+      return payload.exp * 1000 < Date.now();
+    } catch {
+      return true;
+    }
+  };
+
+  // Clear invalid token
+  const clearToken = () => {
+    setToken('');
+    setIsLoggedIn(false);
+    setUser(null);
+    localStorage.removeItem('token');
+  };
+
   useEffect(() => {
     const savedToken = localStorage.getItem('token');
-
-    if (savedToken) {
+    if (savedToken && !isTokenExpired(savedToken)) {
       setToken(savedToken);
-
       try {
         const payload = JSON.parse(atob(savedToken.split('.')[1]));
         setUser({
@@ -71,8 +87,10 @@ function App() {
         });
         setIsLoggedIn(true);
       } catch (err) {
-        localStorage.removeItem('token');
+        clearToken();
       }
+    } else {
+      if (savedToken) clearToken();
     }
   }, []);
 
@@ -147,8 +165,9 @@ function App() {
   };
 
   const openSaveSongDialog = (song) => {
-    if (!token) {
-      setError('Please log in to save songs');
+    if (!token || isTokenExpired(token)) {
+      setError('Session expired. Please log in again.');
+      clearToken();
       return;
     }
 
@@ -181,13 +200,13 @@ function App() {
   };
 
   const getAuthHeaders = () => {
-    if (token) {
+    if (token && !isTokenExpired(token)) {
       return {
         Authorization: `Bearer ${token}`,
         'Content-Type': 'application/json',
       };
     }
-
+    clearToken();
     return {
       'Content-Type': 'application/json',
     };
@@ -218,6 +237,11 @@ function App() {
       });
 
       if (!response.ok) {
+        if (response.status === 401) {
+          clearToken();
+          setError('Session expired. Please log in again.');
+          return;
+        }
         throw new Error(`API error: ${response.status}`);
       }
 
@@ -231,8 +255,9 @@ function App() {
   };
 
   const savePlaylist = async (currentPlaylist) => {
-    if (!token) {
-      setError('Please log in to save playlists');
+    if (!token || isTokenExpired(token)) {
+      setError('Session expired. Please log in again.');
+      clearToken();
       return;
     }
 
@@ -256,13 +281,18 @@ function App() {
         body: JSON.stringify(playlistData),
       });
 
-      if (response.ok) {
-        alert('Playlist saved successfully!');
-        loadUserPlaylists();
-      } else {
+      if (!response.ok) {
+        if (response.status === 401) {
+          clearToken();
+          setError('Session expired. Please log in again.');
+          return;
+        }
         const errorData = await response.json().catch(() => null);
         throw new Error(errorData?.detail || 'Failed to save playlist');
       }
+
+      alert('Playlist saved successfully!');
+      loadUserPlaylists();
     } catch (err) {
       setError(err.message || 'Failed to save playlist');
     } finally {
@@ -309,6 +339,11 @@ function App() {
       });
 
       if (!response.ok) {
+        if (response.status === 401) {
+          clearToken();
+          setError('Session expired. Please log in again.');
+          return;
+        }
         const errorData = await response.json().catch(() => null);
         throw new Error(errorData?.detail || 'Failed to save song');
       }
@@ -331,25 +366,34 @@ function App() {
     }
   };
 
-const loadUserPlaylists = async () => {
-    if (!token) return;
+  const loadUserPlaylists = async () => {
+    if (!token || isTokenExpired(token)) {
+      clearToken();
+      return;
+    }
 
     try {
       const response = await fetch(`${API_BASE}/playlists`, {
         headers: getAuthHeaders(),
       });
 
-      if (response.ok) {
-        const data = await response.json();
-        setUserPlaylists(data);
+      if (!response.ok) {
+        if (response.status === 401) {
+          clearToken();
+          return;
+        }
+        throw new Error('Failed to load playlists');
       }
+
+      const data = await response.json();
+      setUserPlaylists(data);
     } catch (err) {
       console.error('Failed to load playlists');
     }
   };
 
   const deletePlaylist = async (playlistId) => {
-    if (!token || !confirm('Delete this playlist? This cannot be undone.')) return;
+    if (!token || isTokenExpired(token) || !confirm('Delete this playlist? This cannot be undone.')) return;
 
     try {
       const response = await fetch(`${API_BASE}/playlists/${playlistId}`, {
@@ -357,21 +401,24 @@ const loadUserPlaylists = async () => {
         headers: getAuthHeaders(),
       });
 
-      if (response.ok) {
-        setUserPlaylists(prev => prev.filter(p => p.id !== playlistId));
-        setExpandedPlaylists(prev => {
-          const newState = { ...prev };
-          delete newState[playlistId];
-          return newState;
-        });
-      } else {
+      if (!response.ok) {
+        if (response.status === 401) {
+          clearToken();
+          return;
+        }
         throw new Error('Failed to delete playlist');
       }
+
+      setUserPlaylists(prev => prev.filter(p => p.id !== playlistId));
+      setExpandedPlaylists(prev => {
+        const newState = { ...prev };
+        delete newState[playlistId];
+        return newState;
+      });
     } catch (err) {
       console.error('Delete failed:', err);
     }
   };
-
 
   const defaultArtwork = 'https://via.placeholder.com/1200x1200/0f172a/e2e8f0?text=Music';
   const preferenceSummary = [
