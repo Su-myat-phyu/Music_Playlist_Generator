@@ -1,10 +1,11 @@
-# Task: Add per-song save functionality with existing/new playlist prompt
+# Music Playlist Generator - UI Enhancement Task
+## Task: Improve SaveSongModal layout and visibility
 
-## Plan Implementation Steps
-- [x] Step 1: Confirmed plan with user
-- [x] Step 2: Added missing `/playlists/save-song` endpoint in backend/app/routers/playlists.py
-- [ ] Step 3: Test frontend save song (existing playlist)
-- [ ] Step 4: Test frontend save song (new playlist)
-- [x] Step 6: Restart backend command provided
-- [ ] Step 7: Complete task
+### Steps:
+- [x] 1. Create TODO.md and plan approved
+- [x] 2. Add comprehensive CSS styles to frontend/src/App.css for SaveSongModal components (header, preview, modes, form, actions)
+- [x] 3. Test modal in browser (desktop/mobile responsiveness, visibility, interactions)
+- [x] 4. Update TODO.md with completion
+- [x] 5. Fixed feedback: Set mode-pill text color to white
+- [x] 6. Attempt task completion
 

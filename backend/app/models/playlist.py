@@ -12,14 +12,14 @@ class PlaylistPreferences(BaseModel):
 
 class PlaylistCreate(BaseModel):
     name: str
-    songs: List[Dict[str, Any]] = Field(default_factory=list)
+    songs: List[Dict[str, Any]] = Field(default_factory=list)  # Each song can include 'explanation' and 'recommendation_score'
     preferences: PlaylistPreferences = Field(default_factory=PlaylistPreferences)
 
 
 class PlaylistResponse(BaseModel):
     id: str
     name: str
-    songs: List[Dict[str, Any]]
+    songs: List[Dict[str, Any]]  # Supports 'explanation', 'recommendation_score' fields
     preferences: Dict[str, Any]
     created_at: datetime
     updated_at: datetime

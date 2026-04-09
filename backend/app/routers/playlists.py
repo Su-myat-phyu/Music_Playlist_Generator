@@ -6,6 +6,7 @@ from ..models.playlist import PlaylistCreate, PlaylistResponse, SaveSongRequest
 from ..models.user import UserResponse
 from ..services.db import PlaylistDB
 from ..services.auth import get_current_user
+# No additional imports needed; explanations handled via Dict[str, Any] in models
 from datetime import datetime
 
 router = APIRouter(prefix="/playlists", tags=["playlists"])
@@ -51,16 +52,16 @@ async def list_playlists(current_user: Dict = Depends(get_current_user)):
 
 @router.post("/save-song", response_model=PlaylistResponse)
 async def save_song(request: SaveSongRequest, current_user: Dict = Depends(get_current_user)):
-    """Save song to existing or new playlist"""
+    """Save song to existing or new playlist (preserves ML explanations)"""
     try:
         if request.playlist_id:
-            # Add to existing playlist
+            # Add to existing playlist - preserve any existing explanations
             updated_playlist = db.append_song_to_playlist(current_user["user_id"], request.playlist_id, request.song)
             if not updated_playlist:
                 raise HTTPException(status_code=404, detail="Playlist not found")
             return PlaylistResponse(**serialize_playlist(updated_playlist))
         elif request.playlist_name:
-            # Create new playlist with this song
+            # Create new playlist with this song (supports explanations from ML recs)
             playlist_data = {
                 "name": request.playlist_name,
                 "songs": [request.song],
@@ -87,7 +88,7 @@ async def add_song_to_playlist(
     song: Dict[str, Any],
     current_user: Dict = Depends(get_current_user)
 ):
-    """Add a single song to existing playlist"""
+    """Add a single song to existing playlist (preserves explanations)"""
     try:
         updated_playlist = db.append_song_to_playlist(current_user["user_id"], playlist_id, song)
         if not updated_playlist:

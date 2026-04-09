@@ -7,6 +7,7 @@ from app.routers.playlists import router as playlists_router
 from app.routers.auth import router as auth_router
 from app.services.db import PlaylistDB
 from app.services.auth import get_current_user
+from app.services.recommendation import recommendation_engine
 import requests
 import random
 
@@ -26,37 +27,7 @@ app.add_middleware(
 # iTunes API base URL
 ITUNES_SEARCH_URL = "https://itunes.apple.com/search"
 
-# Genre to iTunes term mapping
-GENRE_MAP = {
-    "rock": "rock",
-    "pop": "pop",
-    "jazz": "jazz",
-    "classical": "classical",
-    "hip-hop": "hip hop",
-    "rap": "rap",
-    "country": "country",
-    "electronic": "electronic",
-    "r&b": "r&b",
-    "latin": "latin",
-    "metal": "metal",
-    "indie": "indie",
-    "folk": "folk",
-    "blues": "blues",
-    "reggae": "reggae"
-}
-
-# Mood to genre mapping (for mood-based recommendations)
-MOOD_GENRE_MAP = {
-    "happy": ["pop", "dance", "happy"],
-    "sad": ["ballad", "soul", "r&b"],
-    "energetic": ["rock", "metal", "hip hop"],
-    "relaxing": ["classical", "jazz", "ambient"],
-    "romantic": ["r&b", "soul", "ballad"],
-    "focus": ["classical", "instrumental", "piano"],
-    "party": ["dance", "hip hop", "pop"],
-    "workout": ["rock", "electronic", "hip hop"],
-    "chill": ["indie", "jazz", "lo-fi"]
-}
+# Mappings moved to recommendation.py
 
 # Genre descriptions for better search
 GENRE_DESCRIPTIONS = {
@@ -93,9 +64,7 @@ def search_itunes(term, limit=10):
     except Exception as e:
         return None
 
-def get_mood_genres(mood):
-    """Get genre terms for a mood"""
-    return MOOD_GENRE_MAP.get(mood.lower(), ["pop", "rock"])
+# get_mood_genres moved to recommendation.py
 
 app.include_router(playlists_router)
 app.include_router(auth_router)
@@ -161,15 +130,15 @@ def playlist_by_mood(
     mood: str = Query(..., description="Mood (happy, sad, energetic, relaxing, etc.)"),
     limit: int = Query(default=10, description="Number of songs")
 ):
-    """Generate playlist based on mood"""
+    """Generate explainable playlist based on mood using ML"""
     mood_lower = mood.lower()
-    genres = get_mood_genres(mood_lower)
+    preferences = {"mood": mood_lower}
     
+    # Fetch broader candidates
+    genres = ["pop", "rock", "jazz", "hip-hop", "electronic"]  # Broad search
     all_songs = []
-    
-    # Search for each genre related to the mood
     for genre in genres:
-        results = search_itunes(genre, limit=limit)
+        results = search_itunes(genre, limit=limit*3)
         if results and "results" in results:
             for track in results["results"]:
                 all_songs.append({
@@ -183,15 +152,14 @@ def playlist_by_mood(
                     "duration": track.get("trackTimeMillis")
                 })
     
-    # Shuffle and limit
-    random.shuffle(all_songs)
-    final_playlist = all_songs[:limit]
+    # ML ranking + explanations
+    recommendations = recommendation_engine.recommend(all_songs, preferences, limit)
     
     return {
         "mood": mood_lower,
-        "genres_used": genres,
-        "playlist": final_playlist,
-        "count": len(final_playlist)
+        "method": "ML cosine similarity",
+        "playlist": recommendations,
+        "count": len(recommendations)
     }
 
 @app.get("/by-genre")
@@ -199,36 +167,33 @@ def playlist_by_genre(
     genre: str = Query(..., description="Genre name"),
     limit: int = Query(default=10, description="Number of songs")
 ):
-    """Generate playlist based on genre"""
+    """Generate explainable playlist based on genre using ML"""
     genre_lower = genre.lower()
-    search_term = GENRE_MAP.get(genre_lower, genre_lower)
+    preferences = {"genre": genre_lower}
     
-    results = search_itunes(search_term, limit=limit * 2)  # Get more to filter
+    # Fetch candidates from genre + similar
+    base_results = search_itunes(genre_lower, limit=limit*3)
+    all_songs = []
+    if base_results and "results" in base_results:
+        for track in base_results["results"]:
+            all_songs.append({
+                "title": track.get("trackName"),
+                "artist": track.get("artistName"),
+                "album": track.get("collectionName"),
+                "preview_url": track.get("previewUrl"),
+                "artwork": track.get("artworkUrl100"),
+                "genre": track.get("primaryGenreName"),
+                "duration": track.get("trackTimeMillis")
+            })
     
-    songs = []
-    if results and "results" in results:
-        for track in results["results"]:
-            # Filter to ensure genre relevance
-            track_genre = track.get("primaryGenreName", "").lower()
-            if genre_lower in track_genre or track_genre in GENRE_MAP:
-                songs.append({
-                    "title": track.get("trackName"),
-                    "artist": track.get("artistName"),
-                    "album": track.get("collectionName"),
-                    "preview_url": track.get("previewUrl"),
-                    "artwork": track.get("artworkUrl100"),
-                    "genre": track.get("primaryGenreName"),
-                    "duration": track.get("trackTimeMillis")
-                })
-    
-    # Shuffle and limit
-    random.shuffle(songs)
-    final_playlist = songs[:limit]
+    # ML ranking + explanations
+    recommendations = recommendation_engine.recommend(all_songs, preferences, limit)
     
     return {
         "genre": genre_lower,
-        "playlist": final_playlist,
-        "count": len(final_playlist)
+        "method": "ML cosine similarity",
+        "playlist": recommendations,
+        "count": len(recommendations)
     }
 
 @app.get("/by-artist")
@@ -269,60 +234,47 @@ def custom_playlist(
     artist: str = Query(default="", description="Favorite artist"),
     limit: int = Query(default=10, description="Number of songs")
 ):
-    """Custom playlist with multiple preferences"""
+    """Custom explainable playlist using ML"""
+    preferences = {
+        "genre": genre,
+        "mood": mood,
+        "artist": artist
+    }
+    
+    # Fetch broad candidates
     all_songs = []
-    
-    # If artist is specified, search by artist
-    if artist:
-        results = search_itunes(artist, limit=limit)
-        if results and "results" in results:
-            for track in results["results"]:
-                all_songs.append({
-                    "title": track.get("trackName"),
-                    "artist": track.get("artistName"),
-                    "album": track.get("collectionName"),
-                    "preview_url": track.get("previewUrl"),
-                    "artwork": track.get("artworkUrl100"),
-                    "genre": track.get("primaryGenreName"),
-                    "duration": track.get("trackTimeMillis")
-                })
-    
-    # If genre is specified, add genre songs
-    if genre:
-        genre_lower = genre.lower()
-        search_term = GENRE_MAP.get(genre_lower, genre_lower)
-        results = search_itunes(search_term, limit=limit)
-        if results and "results" in results:
-            for track in results["results"]:
-                all_songs.append({
-                    "title": track.get("trackName"),
-                    "artist": track.get("artistName"),
-                    "album": track.get("collectionName"),
-                    "preview_url": track.get("previewUrl"),
-                    "artwork": track.get("artworkUrl100"),
-                    "genre": track.get("primaryGenreName"),
-                    "duration": track.get("trackTimeMillis")
-                })
-    
-    # If mood is specified, add mood-based songs
-    if mood:
-        genres = get_mood_genres(mood)
-        for g in genres:
-            results = search_itunes(g, limit=limit // 2)
+    search_terms = [genre or "", mood or "", artist or ""]
+    for term in search_terms:
+        if term:
+            results = search_itunes(term, limit=limit*2)
             if results and "results" in results:
                 for track in results["results"]:
-                    all_songs.append({
+                    song = {
                         "title": track.get("trackName"),
                         "artist": track.get("artistName"),
                         "album": track.get("collectionName"),
                         "preview_url": track.get("previewUrl"),
                         "artwork": track.get("artworkUrl100"),
                         "genre": track.get("primaryGenreName"),
-                        "mood": mood,
                         "duration": track.get("trackTimeMillis")
-                    })
+                    }
+                    all_songs.append(song)
     
-    # Remove duplicates and shuffle
+    if not all_songs:
+        fallback_results = search_itunes("pop", limit=20)
+        if fallback_results and "results" in fallback_results:
+            for track in fallback_results["results"]:
+                all_songs.append({
+                    "title": track.get("trackName"),
+                    "artist": track.get("artistName"),
+                    "album": track.get("collectionName"),
+                    "preview_url": track.get("previewUrl"),
+                    "artwork": track.get("artworkUrl100"),
+                    "genre": track.get("primaryGenreName"),
+                    "duration": track.get("trackTimeMillis")
+                })
+    
+    # Dedup + ML ranking
     seen = set()
     unique_songs = []
     for song in all_songs:
@@ -331,16 +283,66 @@ def custom_playlist(
             seen.add(key)
             unique_songs.append(song)
     
-    random.shuffle(unique_songs)
-    final_playlist = unique_songs[:limit]
+    recommendations = recommendation_engine.recommend(unique_songs, preferences, limit)
     
     return {
-        "preferences": {
-            "genre": genre,
-            "mood": mood,
-            "artist": artist
-        },
-        "playlist": final_playlist,
-        "count": len(final_playlist)
+        "preferences": preferences,
+        "method": "ML cosine similarity",
+        "playlist": recommendations,
+        "count": len(recommendations)
     }
 
+@app.get("/similar-songs")
+def similar_songs(
+    title: str = Query(..., description="Selected song title"),
+    artist: str = Query(..., description="Selected song artist"),
+    genre: str = Query(default="", description="Selected song genre"),
+    limit: int = Query(default=6, description="Number of similar songs")
+):
+    """Recommend songs similar to a selected track using ML cosine similarity"""
+    selected_song = {
+        "title": title,
+        "artist": artist,
+        "genre": genre
+    }
+
+    candidate_terms = [f"{title} {artist}", artist, genre]
+    candidate_songs = []
+
+    for term in candidate_terms:
+        if not term:
+            continue
+
+        results = search_itunes(term, limit=max(limit * 4, 12))
+        if results and "results" in results:
+            for track in results["results"]:
+                candidate_songs.append({
+                    "title": track.get("trackName"),
+                    "artist": track.get("artistName"),
+                    "album": track.get("collectionName"),
+                    "preview_url": track.get("previewUrl"),
+                    "artwork": track.get("artworkUrl100"),
+                    "genre": track.get("primaryGenreName"),
+                    "duration": track.get("trackTimeMillis")
+                })
+
+    seen = set()
+    unique_candidates = []
+    for song in candidate_songs:
+        key = (song.get("title"), song.get("artist"))
+        if key not in seen:
+            seen.add(key)
+            unique_candidates.append(song)
+
+    recommendations = recommendation_engine.recommend_similar_songs(
+        selected_song,
+        unique_candidates,
+        limit
+    )
+
+    return {
+        "selected_song": selected_song,
+        "method": "ML cosine similarity for song-to-song recommendations",
+        "similar_songs": recommendations,
+        "count": len(recommendations)
+    }
