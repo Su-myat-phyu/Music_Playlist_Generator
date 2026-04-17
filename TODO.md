@@ -1,11 +1,25 @@
-# Music Playlist Generator - UI Enhancement Task
-## Task: Improve SaveSongModal layout and visibility
+# Admin Module Completion Plan
+## Progress Tracker
 
-### Steps:
-- [x] 1. Create TODO.md and plan approved
-- [x] 2. Add comprehensive CSS styles to frontend/src/App.css for SaveSongModal components (header, preview, modes, form, actions)
-- [x] 3. Test modal in browser (desktop/mobile responsiveness, visibility, interactions)
-- [x] 4. Update TODO.md with completion
-- [x] 5. Fixed feedback: Set mode-pill text color to white
-- [x] 6. Attempt task completion
+### 1. Backend Fixes
+- [x] Fix admin.py bugs (remove duplicate login code)
+- [x] Add hashed admin password
+- [ ] Add reactivate user endpoint
 
+### 2. Frontend Components
+- [x] Create AdminLogin.jsx
+- [ ] Update AdminDashboard.jsx (reactivate UI)
+
+### 3. App.js Routing & Auth
+- [x] Install react-router-dom
+- [ ] Add /admin/secure-dashboard route
+- [ ] Admin token handling (separate from user JWT)
+
+### 4. Styles
+- [x] Add admin login CSS
+
+### 5. Testing & Polish
+- [ ] Install deps
+- [ ] Restart services
+- [ ] Test full flow
+- [ ] ✅ Complete admin module

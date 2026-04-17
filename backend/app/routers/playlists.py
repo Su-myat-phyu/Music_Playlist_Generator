@@ -32,6 +32,9 @@ async def create_playlist(playlist_data: PlaylistCreate, current_user: Dict = De
         data["user_id"] = current_user["user_id"]
         
         result = db.save_playlist(current_user["user_id"], data)
+        song_scores = [song.get('recommendation_score', 0.0) for song in data.get('songs', [])]
+        db.update_user_stats(current_user["user_id"], str(result["_id"]), song_scores)
+        
         saved_playlists = db.get_playlists(current_user["user_id"])
         saved_playlist = next(p for p in saved_playlists if str(p["_id"]) == str(result["_id"]))
         return PlaylistResponse(**serialize_playlist(saved_playlist))
@@ -45,6 +48,7 @@ async def list_playlists(current_user: Dict = Depends(get_current_user)):
     """List user's playlists"""
     try:
         playlists = db.get_playlists(current_user["user_id"])
+        db.record_activity(current_user["user_id"], "view_playlists", {"count": len(playlists)})
         return [PlaylistResponse(**serialize_playlist(p)) for p in playlists]
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -59,6 +63,8 @@ async def save_song(request: SaveSongRequest, current_user: Dict = Depends(get_c
             updated_playlist = db.append_song_to_playlist(current_user["user_id"], request.playlist_id, request.song)
             if not updated_playlist:
                 raise HTTPException(status_code=404, detail="Playlist not found")
+            # Update user last_activity for any playlist activity
+            db.update_user(current_user["user_id"], {"last_activity": datetime.utcnow()})
             return PlaylistResponse(**serialize_playlist(updated_playlist))
         elif request.playlist_name:
             # Create new playlist with this song (supports explanations from ML recs)
@@ -71,6 +77,8 @@ async def save_song(request: SaveSongRequest, current_user: Dict = Depends(get_c
             playlist_data["created_at"] = now
             playlist_data["updated_at"] = now
             saved = db.save_playlist(current_user["user_id"], playlist_data)
+            song_scores = [request.song.get('recommendation_score', 0.0)]
+            db.update_user_stats(current_user["user_id"], str(saved["_id"]), song_scores)
             saved_playlists = db.get_playlists(current_user["user_id"])
             saved_playlist = next(p for p in saved_playlists if str(p["_id"]) == str(saved["_id"]))
             return PlaylistResponse(**serialize_playlist(saved_playlist))
@@ -110,6 +118,7 @@ async def get_playlist(playlist_id: str, current_user: Dict = Depends(get_curren
         })
         if not playlist:
             raise HTTPException(status_code=404, detail="Playlist not found")
+        db.record_activity(current_user["user_id"], "view_playlist_detail", {"playlist_id": playlist_id})
         return PlaylistResponse(**serialize_playlist(playlist))
     except HTTPException:
         raise

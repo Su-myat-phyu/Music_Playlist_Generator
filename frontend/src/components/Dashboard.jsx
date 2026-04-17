@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import PlaylistCard from './PlaylistCard';
 import SongCard from './SongCard';
 
@@ -29,13 +29,78 @@ const Dashboard = ({
   onArtistChange,
   onSongCountChange,
   onGenerate,
+  onClearFilters,
   onSavePlaylist,
   onSimilarSongs,
   onSaveSong,
   error,
+  successMessage,
+  onClearSuccess,
   togglePlayPause
 }) => {
-  const defaultArtwork = 'https://via.placeholder.com/1200x1200/0f172a/e2e8f0?text=Music';
+  const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
+  const [activeSection, setActiveSection] = useState('home');
+  const [showBackToTop, setShowBackToTop] = useState(false);
+  const hasActiveFilters = Boolean(selectedGenre || selectedMood || selectedArtist);
+
+  const navItems = useMemo(
+    () => [
+      { id: 'home', label: 'Home' },
+      { id: 'generator', label: 'Generator' },
+      { id: 'library', label: 'Library' },
+      { id: 'results', label: 'Results' },
+    ],
+    []
+  );
+
+  useEffect(() => {
+    const sectionIds = navItems.map((item) => item.id);
+    const sectionElements = sectionIds
+      .map((id) => document.getElementById(id))
+      .filter(Boolean);
+
+    if (sectionElements.length === 0) return undefined;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const visibleEntries = entries
+          .filter((entry) => entry.isIntersecting)
+          .sort((a, b) => b.intersectionRatio - a.intersectionRatio);
+
+        if (visibleEntries.length > 0) {
+          setActiveSection(visibleEntries[0].target.id);
+        }
+      },
+      {
+        rootMargin: '-30% 0px -50% 0px',
+        threshold: [0.2, 0.4, 0.6, 0.8],
+      }
+    );
+
+    sectionElements.forEach((element) => observer.observe(element));
+
+    return () => {
+      sectionElements.forEach((element) => observer.unobserve(element));
+      observer.disconnect();
+    };
+  }, [navItems]);
+
+  useEffect(() => {
+    const handleScroll = () => {
+      setShowBackToTop(window.scrollY > 680);
+    };
+
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
+
+  const scrollToSection = (sectionId) => {
+    const section = document.getElementById(sectionId);
+    if (section) {
+      section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      setIsMobileNavOpen(false);
+    }
+  };
 
   return (
     <div className="app-shell">
@@ -44,13 +109,55 @@ const Dashboard = ({
       <div className="bg-grid" />
 
       <main className="dashboard">
+        <header className="top-nav glass-panel" id="home">
+          <div className="top-nav__brand">
+            <p className="top-nav__title">Music Playlist Generator</p>
+            <p className="top-nav__subtitle">Create, preview, and organize faster</p>
+          </div>
+
+          <button
+            type="button"
+            className="btn btn-ghost btn-small top-nav__toggle"
+            onClick={() => setIsMobileNavOpen((prev) => !prev)}
+            aria-expanded={isMobileNavOpen}
+            aria-controls="dashboard-nav"
+          >
+            Menu
+          </button>
+
+          <nav
+            id="dashboard-nav"
+            className={`top-nav__links ${isMobileNavOpen ? 'is-open' : ''}`}
+            aria-label="Dashboard sections"
+          >
+            {navItems.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                className={`top-nav__link ${activeSection === item.id ? 'is-active' : ''}`}
+                onClick={() => scrollToSection(item.id)}
+              >
+                {item.label}
+              </button>
+            ))}
+            <button onClick={onLogout} className="btn btn-secondary btn-small top-nav__logout">
+              Logout
+            </button>
+          </nav>
+        </header>
+
         <section className="hero-panel glass-panel">
           <div className="hero-panel__content">
             <div className="hero-panel__top">
               <span className="eyebrow">Your music workspace</span>
-              <button onClick={onLogout} className="btn btn-secondary">
-                Logout
-              </button>
+              <div className="hero-panel__quick-actions">
+                <button type="button" onClick={() => scrollToSection('generator')} className="btn btn-ghost btn-small">
+                  New mix
+                </button>
+                <button type="button" onClick={() => scrollToSection('results')} className="btn btn-ghost btn-small">
+                  View results
+                </button>
+              </div>
             </div>
 
             <div className="hero-panel__headline">
@@ -89,10 +196,18 @@ const Dashboard = ({
         </section>
 
         {error && <div className="status-banner status-banner--error">{error}</div>}
+        {successMessage && (
+          <div className="status-banner status-banner--success">
+            <span>{successMessage}</span>
+            <button type="button" className="btn btn-ghost btn-small" onClick={onClearSuccess}>
+              Dismiss
+            </button>
+          </div>
+        )}
 
         <section className="dashboard-grid">
-          <aside className="dashboard-sidebar">
-            <div className="glass-panel panel-section">
+          <aside className="dashboard-sidebar" id="generator">
+            <div className="glass-panel panel-section section-anchor">
               <div className="panel-header">
                 <div>
                   <span className="eyebrow">Generator</span>
@@ -154,11 +269,22 @@ const Dashboard = ({
                     />
                     <div className="range-value">{songCount}</div>
                   </div>
+                  <p className="form-helper-copy">Tip: 10-20 songs is best for quick playlist exploration.</p>
                 </div>
 
-                <button type="submit" disabled={loading} className="btn btn-primary btn-block">
-                  {loading ? 'Generating playlist...' : `Generate playlist (${songCount} songs)`}
-                </button>
+                <div className="generator-actions">
+                  <button type="submit" disabled={loading} className="btn btn-primary btn-block">
+                    {loading ? 'Generating playlist...' : `Generate playlist (${songCount} songs)`}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-block"
+                    onClick={onClearFilters}
+                    disabled={loading || !hasActiveFilters}
+                  >
+                    Reset filters
+                  </button>
+                </div>
               </form>
             </div>
 
@@ -187,7 +313,7 @@ const Dashboard = ({
           </aside>
 
           <section className="dashboard-main">
-            <div className="glass-panel panel-section">
+            <div className="glass-panel panel-section section-anchor" id="library">
               <div className="panel-header panel-header--split">
                 <div>
                   <span className="eyebrow">Library</span>
@@ -220,7 +346,7 @@ const Dashboard = ({
               )}
             </div>
 
-            <div className="glass-panel panel-section">
+            <div className="glass-panel panel-section section-anchor" id="results">
               <div className="panel-header panel-header--split">
                 <div>
                   <span className="eyebrow">Generated playlist</span>
@@ -233,6 +359,29 @@ const Dashboard = ({
                 )}
               </div>
 
+              {playlist.length > 0 && (
+                <div className="results-toolbar">
+                  <div className="results-toolbar__count">
+                    <strong>{playlist.length}</strong>
+                    <span>tracks generated</span>
+                  </div>
+                  <div className="results-toolbar__meta">
+                    {hasActiveFilters ? (
+                      <span>Based on your selected filters</span>
+                    ) : (
+                      <span>Based on a broad discovery mix</span>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-small"
+                    onClick={() => scrollToSection('generator')}
+                  >
+                    Refine filters
+                  </button>
+                </div>
+              )}
+
               {playlist.length === 0 ? (
                 <div className="empty-state empty-state--large">
                   <div className="empty-state__icon">✨</div>
@@ -241,6 +390,13 @@ const Dashboard = ({
                     Choose a mood or genre, generate recommendations, then preview and save
                     the tracks you love.
                   </p>
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    onClick={() => scrollToSection('generator')}
+                  >
+                    Start generating
+                  </button>
                 </div>
               ) : (
                 <div className="song-grid">
@@ -263,6 +419,17 @@ const Dashboard = ({
             </div>
           </section>
         </section>
+
+        {showBackToTop && (
+          <button
+            type="button"
+            className="back-to-top"
+            onClick={() => scrollToSection('home')}
+            aria-label="Back to top"
+          >
+            Top
+          </button>
+        )}
       </main>
     </div>
   );

@@ -83,9 +83,14 @@ async def google_callback(code: str):
         
         if user:
             # Update existing user
-            user["name"] = name
-            user["updated_at"] = datetime.utcnow()
-            db.update_user(user["_id"], user)
+            db.update_user(
+                str(user["_id"]),
+                {
+                    "name": name,
+                    "email": email,
+                    "last_activity": datetime.utcnow(),
+                },
+            )
             user_id = str(user["_id"])
         else:
             # Create new user
@@ -93,14 +98,22 @@ async def google_callback(code: str):
                 "name": name,
                 "email": email,
                 "google_id": google_id,
+                "role": "user",
+                "is_active": True,
                 "playlists": [],
+                "playlists_count": 0,
+                "last_activity": datetime.utcnow(),
+                "total_accuracy": 0.0,
                 "created_at": datetime.utcnow(),
                 "updated_at": datetime.utcnow()
             }
-            user_id = db.save_user(new_user)
+            saved_user = db.save_user(new_user)
+            user_id = str(saved_user["_id"])
         
         if not user_id:
             raise HTTPException(500, "Failed to save user")
+
+        db.record_activity(user_id, "login", {"provider": "google_oauth"})
         
         # Create JWT
         access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
