@@ -11,8 +11,13 @@ class UserDB(BaseModel):
     id: str
     name: str
     email: EmailStr
-    google_id: str
+    google_id: Optional[str] = None
+    role: str = "user"  # "user" or "admin"
+    is_active: bool = True
     playlists: List[str] = []  # List of playlist ObjectIds as strings
+    playlists_count: int = 0
+    last_activity: datetime
+    total_accuracy: float = 0.0
     created_at: datetime
     updated_at: Optional[datetime] = None
 
@@ -23,7 +28,11 @@ class UserResponse(BaseModel):
     id: str
     name: str
     email: str
-    playlist_count: int = 0
+    role: str
+    is_active: bool
+    playlists_count: int = 0
+    last_activity: datetime
+    total_accuracy: float = 0.0
     created_at: datetime
 
     class Config:
