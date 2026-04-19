@@ -168,6 +168,20 @@ class PlaylistDB:
         )
         return result.modified_count > 0
 
+    def activate_user(self, user_id: str) -> bool:
+        """Activate a user (set is_active=True)"""
+        try:
+            from bson import ObjectId
+            query = {"_id": ObjectId(user_id)}
+        except:
+            query = {"_id": user_id}
+
+        result = self.users.update_one(
+            query,
+            {"$set": {"is_active": True, "updated_at": datetime.utcnow()}}
+        )
+        return result.modified_count > 0
+
     def get_all_users(self, active_only: bool = True) -> List[Dict[str, Any]]:
         """Get all users, optionally filter active only"""
         query = {} if not active_only else {"is_active": True}
@@ -291,8 +305,14 @@ class PlaylistDB:
 
     def get_dashboard_stats(self) -> Dict[str, Any]:
         """Get admin dashboard stats with usage and ML monitoring data."""
-        # Total users and playlists
-        total_users = self.users.count_documents({})
+        # Total users and playlists (exclude admin accounts)
+        total_users_query = {
+            "$and": [
+                {"$or": [{"role": {"$exists": False}}, {"role": {"$ne": "admin"}}]},
+                {"email": {"$ne": "admin@playlistgen.com"}}
+            ]
+        }
+        total_users = self.users.count_documents(total_users_query)
         total_playlists = self.playlists.count_documents({})
 
         # Popular moods/genres (top 5)
@@ -312,6 +332,16 @@ class PlaylistDB:
         ]
         genres = list(self.playlists.aggregate(genre_pipeline))
 
+        artist_pipeline = [
+            {"$unwind": "$songs"},
+            {"$match": {"songs.artist": {"$exists": True, "$ne": None, "$ne": "", "$type": "string"}}},
+            {"$group": {"_id": "$songs.artist", "count": {"$sum": 1}}},
+            {"$match": {"_id": {"$ne": ""}}},
+            {"$sort": {"count": -1}},
+            {"$limit": 5}
+        ]
+        artists = list(self.playlists.aggregate(artist_pipeline))
+
         # Avg ML accuracy across all playlists (uses recommendation_score)
         accuracy_pipeline = [
             {"$unwind": "$songs"},
@@ -321,10 +351,17 @@ class PlaylistDB:
         accuracy_result = list(self.playlists.aggregate(accuracy_pipeline))
         avg_accuracy = accuracy_result[0]["avg_accuracy"] if accuracy_result else 0.0
 
-        # Recent activity (users active last 30 days)
+        # Recent activity (users active last 30 days) - exclude admin accounts
         from datetime import timedelta
         thirty_days_ago = datetime.utcnow() - timedelta(days=30)
-        recent_users = self.users.count_documents({"last_activity": {"$gte": thirty_days_ago}})
+        recent_users_query = {
+            "last_activity": {"$gte": thirty_days_ago},
+            "$and": [
+                {"$or": [{"role": {"$exists": False}}, {"role": {"$ne": "admin"}}]},
+                {"email": {"$ne": "admin@playlistgen.com"}}
+            ]
+        }
+        recent_users = self.users.count_documents(recent_users_query)
         activity_metrics = self.get_user_activity_metrics(days=30)
         ml_metrics = self.get_ml_metrics()
 
@@ -335,6 +372,7 @@ class PlaylistDB:
             "avg_accuracy": round(avg_accuracy, 4),
             "top_moods": [{"name": m["_id"], "count": m["count"]} for m in moods],
             "top_genres": [{"name": g["_id"], "count": g["count"]} for g in genres],
+            "top_artists": [{"name": a["_id"], "count": a["count"]} for a in artists],
             "user_activity": activity_metrics,
             "ml_metrics": ml_metrics,
         }

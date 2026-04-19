@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Optional, Dict, Any
+import hmac
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 from fastapi import Depends, HTTPException, status
@@ -43,6 +44,12 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
 
+def decode_internal_jwt(token: str) -> Optional[Dict[str, Any]]:
+    try:
+        return jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+    except JWTError:
+        return None
+
 async def get_current_user(token: str = Depends(oauth2_scheme)):
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
@@ -50,15 +57,33 @@ async def get_current_user(token: str = Depends(oauth2_scheme)):
         headers={"WWW-Authenticate": "Bearer"},
     )
     try:
-        # First try Google ID token validation (frontend sends this directly)
+        # First try Google ID token validation (frontend sends this directly).
         if GOOGLE_CLIENT_ID:
-            google_payload = id_token.verify_oauth2_token(token, requests.Request(), GOOGLE_CLIENT_ID)
-            google_user_id = google_payload.get("sub")
-            if google_user_id:
-                return {"user_id": f"google_{google_user_id}", "role": "user"}
+            try:
+                google_payload = id_token.verify_oauth2_token(token, requests.Request(), GOOGLE_CLIENT_ID)
+                google_user_id = google_payload.get("sub")
+                if google_user_id:
+                    user_doc = db.users.find_one({"google_id": google_user_id})
+                    if user_doc and not user_doc.get("is_active", True):
+                        raise HTTPException(
+                            status_code=status.HTTP_403_FORBIDDEN,
+                            detail="User account is inactive",
+                        )
+                    if user_doc:
+                        return {
+                            "user_id": str(user_doc["_id"]),
+                            "role": user_doc.get("role", "user"),
+                        }
+                    # Fallback when a Google-authenticated user exists only transiently.
+                    return {"user_id": f"google_{google_user_id}", "role": "user"}
+            except ValueError:
+                # Not a valid Google ID token; continue with internal JWT.
+                pass
 
         # Fallback to JWT
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        payload = decode_internal_jwt(token)
+        if payload is None:
+            raise credentials_exception
         user_id: str = payload.get("sub")
         role: str = payload.get("role", "user")
         if user_id is None:
@@ -75,11 +100,27 @@ async def get_current_user(token: str = Depends(oauth2_scheme)):
     except (JWTError, ValueError):
         raise credentials_exception
 
+async def get_current_admin(token: str = Depends(oauth2_scheme)):
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate admin credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    payload = decode_internal_jwt(token)
+    if payload is None:
+        raise credentials_exception
+
+    role = payload.get("role")
+    username = payload.get("username")
+    expected_username = os.getenv("ADMIN_USERNAME", "admin")
+    if role != "admin" or not username or not hmac.compare_digest(username, expected_username):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin privileges required",
+        )
+    return {"username": username, "role": role}
+
 def decode_token(token: str):
     """Utility to decode token without dependency"""
-    try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        return payload
-    except JWTError:
-        return None
+    return decode_internal_jwt(token)
 

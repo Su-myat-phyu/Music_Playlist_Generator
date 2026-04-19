@@ -3,6 +3,8 @@ import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { GoogleOAuthProvider, googleLogout } from '@react-oauth/google';
 import AuthShell from './components/AuthShell';
 import Dashboard from './components/Dashboard';
+import AdminLogin from './components/AdminLogin';
+import AdminDashboard from './components/AdminDashboard';
 
 import SaveSongModal from './components/SaveSongModal';
 import SimilarSongsModal from './components/SimilarSongsModal';
@@ -11,6 +13,7 @@ import './App.css';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 
 const GOOGLE_CLIENT_ID = '80369468349-jlbunn8ubumo4kutgl2aed9dqkv2rf97.apps.googleusercontent.com';
+const ADMIN_PATH = process.env.REACT_APP_ADMIN_PATH || '/secure-admin-portal';
 
 const genres = [
   { id: 'rock', name: 'Rock' },
@@ -519,6 +522,8 @@ function App() {
     <BrowserRouter>
       <GoogleOAuthProvider clientId={GOOGLE_CLIENT_ID}>
         <Routes>
+          <Route path={ADMIN_PATH} element={<AdminLogin adminPath={ADMIN_PATH} />} />
+          <Route path={`${ADMIN_PATH}/dashboard`} element={<AdminDashboard adminPath={ADMIN_PATH} />} />
           <Route path="/" element={!isLoggedIn ? (
             <AuthShell 
               error={error}
