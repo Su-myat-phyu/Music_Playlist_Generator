@@ -5,9 +5,11 @@ from dotenv import load_dotenv
 from app.models.playlist import PlaylistCreate
 from app.routers.playlists import router as playlists_router
 from app.routers.auth import router as auth_router
+from app.routers.admin import router as admin_router
+
 from app.services.db import PlaylistDB
 from app.services.auth import get_current_user
-from app.services.recommendation import recommendation_engine
+from app.services.recommendation import recommendation_engine, GENRE_MAP, MOOD_GENRE_MAP
 import requests
 import random
 
@@ -68,6 +70,8 @@ def search_itunes(term, limit=10):
 
 app.include_router(playlists_router)
 app.include_router(auth_router)
+app.include_router(admin_router)
+
 
 @app.get("/")
 def home():

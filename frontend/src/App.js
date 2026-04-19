@@ -1,13 +1,19 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
+
 import { GoogleOAuthProvider, googleLogout } from '@react-oauth/google';
 import AuthShell from './components/AuthShell';
 import Dashboard from './components/Dashboard';
+import AdminLogin from './components/AdminLogin';
+import AdminDashboard from './components/AdminDashboard';
+
 import SaveSongModal from './components/SaveSongModal';
 import SimilarSongsModal from './components/SimilarSongsModal';
 import './App.css';
 
-const API_BASE = process.env.REACT_APP_API_BASE_URL || '';
+import { BrowserRouter, Routes, Route } from 'react-router-dom';
+
 const GOOGLE_CLIENT_ID = '80369468349-jlbunn8ubumo4kutgl2aed9dqkv2rf97.apps.googleusercontent.com';
+const ADMIN_PATH = process.env.REACT_APP_ADMIN_PATH || '/secure-admin-portal';
 
 const genres = [
   { id: 'rock', name: 'Rock' },
@@ -28,7 +34,7 @@ const moods = [
   { id: 'happy', name: 'Happy', emoji: '☀️' },
   { id: 'energetic', name: 'Energetic', emoji: '⚡' },
   { id: 'relaxing', name: 'Relaxing', emoji: '🌊' },
-  { id: 'romantic', name: 'Romantic', emoji: '💜' },
+  { id: 'romantic', name: 'Romantic', emoji: '💖' },
   { id: 'sad', name: 'Sad', emoji: '🌧️' },
   { id: 'focus', name: 'Focus', emoji: '🎯' },
   { id: 'party', name: 'Party', emoji: '🎉' },
@@ -37,14 +43,19 @@ const moods = [
 ];
 
 const parseJwtPayload = (tokenStr) => {
-  const payload = tokenStr.split('.')[1];
-  if (!payload) {
-    throw new Error('Invalid token');
-  }
+  try {
+    const payload = tokenStr.split('.')[1];
+    if (!payload) {
+      throw new Error('Invalid token - no payload');
+    }
 
-  const normalized = payload.replace(/-/g, '+').replace(/_/g, '/');
-  const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '=');
-  return JSON.parse(atob(padded));
+    const normalized = payload.replace(/-/g, '+').replace(/_/g, '/');
+    const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '=');
+    const decoded = JSON.parse(atob(padded));
+    return decoded;
+  } catch (err) {
+    throw new Error('Invalid token format');
+  }
 };
 
 function App() {
@@ -52,7 +63,6 @@ function App() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [user, setUser] = useState(null);
   const [token, setToken] = useState('');
-
   // Playlist generator state
   const [selectedGenre, setSelectedGenre] = useState('');
   const [selectedMood, setSelectedMood] = useState('');
@@ -71,6 +81,7 @@ function App() {
   const [similarSongs, setSimilarSongs] = useState([]);
   const [selectedBaseSong, setSelectedBaseSong] = useState(null);
   const [error, setError] = useState('');
+  const [successMessage, setSuccessMessage] = useState('');
   const [saveSongDialogOpen, setSaveSongDialogOpen] = useState(false);
   const [selectedSong, setSelectedSong] = useState(null);
   const [playlistTargetMode, setPlaylistTargetMode] = useState('existing');
@@ -96,9 +107,9 @@ function App() {
     setToken('');
     setIsLoggedIn(false);
     setUser(null);
+    setSuccessMessage('');
     localStorage.removeItem('token');
   };
-
   const getAuthHeaders = () => {
     if (token && !isTokenExpired(token)) {
       return {
@@ -121,14 +132,16 @@ function App() {
     try {
       const payload = parseJwtPayload(nextToken);
       setUser({
-        name: payload.name,
-        email: payload.email,
-        picture: payload.picture,
+        name: payload.name || payload.sub || 'Admin User',
+        email: payload.email || 'admin@system',
+        picture: payload.picture || '',
+        role: payload.role || 'user',
+        sub: payload.sub,
       });
       setIsLoggedIn(true);
       setError('');
     } catch (err) {
-      setError('Login failed');
+      setError(`Token parse error: ${err.message}`);
     }
   };
 
@@ -144,6 +157,7 @@ function App() {
     setExpandedPlaylists({});
     setPlaylist([]);
     setError('');
+    setSuccessMessage('');
     closeSaveSongDialog();
     localStorage.removeItem('token');
     googleLogout();
@@ -160,6 +174,7 @@ function App() {
           name: payload.name,
           email: payload.email,
           picture: payload.picture,
+          role: payload.role || 'user',
         });
         setIsLoggedIn(true);
       } catch (err) {
@@ -169,7 +184,6 @@ function App() {
       if (savedToken) clearToken();
     }
   }, [isTokenExpired]);
-
   useEffect(() => {
     if (isLoggedIn && token) {
       loadUserPlaylists();
@@ -353,6 +367,7 @@ function App() {
       }
 
       closeSaveSongDialog();
+      setSuccessMessage('Song saved successfully.');
     } catch (err) {
       setError(err.message || 'Failed to save song');
     } finally {
@@ -408,6 +423,7 @@ function App() {
 
     setLoading(true);
     setError('');
+    setSuccessMessage('');
     setPlaylist([]);
     setSimilarSongs([]);
     setSelectedBaseSong(null);
@@ -478,7 +494,7 @@ function App() {
         throw new Error(errorData?.detail || 'Failed to save playlist');
       }
 
-      alert('Playlist saved successfully!');
+      setSuccessMessage('Playlist saved successfully.');
       loadUserPlaylists();
     } catch (err) {
       setError(err.message || 'Failed to save playlist');
@@ -493,88 +509,102 @@ function App() {
     selectedArtist && `Artist: ${selectedArtist}`,
   ].filter(Boolean);
 
-  if (!isLoggedIn) {
-    return (
-      <GoogleOAuthProvider clientId={GOOGLE_CLIENT_ID}>
-        <AuthShell 
-          error={error}
-          onLoginSuccess={handleLoginSuccess}
-          onLoginError={handleLoginError}
-        />
-      </GoogleOAuthProvider>
-    );
-  }
+  const clearGeneratorFilters = () => {
+    setSelectedGenre('');
+    setSelectedMood('');
+    setSelectedArtist('');
+    setSongCount(10);
+    setError('');
+    setSuccessMessage('');
+  };
 
   return (
-    <GoogleOAuthProvider clientId={GOOGLE_CLIENT_ID}>
-      <div>
+    <BrowserRouter>
+      <GoogleOAuthProvider clientId={GOOGLE_CLIENT_ID}>
+        <Routes>
+          <Route path={ADMIN_PATH} element={<AdminLogin adminPath={ADMIN_PATH} />} />
+          <Route path={`${ADMIN_PATH}/dashboard`} element={<AdminDashboard adminPath={ADMIN_PATH} />} />
+          <Route path="/" element={!isLoggedIn ? (
+            <AuthShell 
+              error={error}
+              onLoginSuccess={handleLoginSuccess}
+              onLoginError={handleLoginError}
+            />
+          ) : (
+            <div>
+              <Dashboard
+                user={user}
+                userPlaylists={userPlaylists}
+                expandedPlaylists={expandedPlaylists}
+                playlist={playlist}
+                preferenceSummary={preferenceSummary}
+                genres={genres}
+                moods={moods}
+                selectedGenre={selectedGenre}
+                selectedMood={selectedMood}
+                selectedArtist={selectedArtist}
+                songCount={songCount}
+                loading={loading}
+                currentSongId={currentSongId}
+                isPlaying={isPlaying}
+                similarSongsLoading={similarSongsLoading}
+                selectedBaseSong={selectedBaseSong}
+                onLogout={handleLogout}
+                onRefreshPlaylists={loadUserPlaylists}
+                onTogglePlaylist={toggleSavedPlaylist}
+                onDeletePlaylist={deletePlaylist}
+                onPlaySong={togglePlayPause}
+                onGenreChange={setSelectedGenre}
+                onMoodChange={setSelectedMood}
+                onArtistChange={setSelectedArtist}
+                onSongCountChange={setSongCount}
+                onGenerate={handleGenerate}
+                onClearFilters={clearGeneratorFilters}
+                onSavePlaylist={savePlaylist}
+                onSimilarSongs={handleFindSimilarSongs}
+                onSaveSong={openSaveSongDialog}
+                error={error}
+                successMessage={successMessage}
+                onClearSuccess={() => setSuccessMessage('')}
+                togglePlayPause={togglePlayPause}
+              />
+              {similarSongs.length > 0 && selectedBaseSong && (
+                <SimilarSongsModal
+                  similarSongs={similarSongs}
+                  selectedBaseSong={selectedBaseSong}
+                  currentSongId={currentSongId}
+                  isPlaying={isPlaying}
+                  onClose={() => {
+                    setSimilarSongs([]);
+                    setSelectedBaseSong(null);
+                  }}
+                  onPlay={togglePlayPause}
+                  onSave={openSaveSongDialog}
+                />
+              )}
+              <SaveSongModal
+                isOpen={saveSongDialogOpen}
+                song={selectedSong}
+                userPlaylists={userPlaylists}
+                playlistTargetMode={playlistTargetMode}
+                selectedExistingPlaylistId={selectedExistingPlaylistId}
+                newPlaylistName={newPlaylistName}
+                songSaveLoading={songSaveLoading}
+                onClose={closeSaveSongDialog}
+                onModeChange={setPlaylistTargetMode}
+                onPlaylistIdChange={setSelectedExistingPlaylistId}
+                onNewPlaylistNameChange={setNewPlaylistName}
+                onSave={handleSaveSong}
+              />
+            </div>
+          )} />
 
-        <Dashboard
-          user={user}
-          userPlaylists={userPlaylists}
-          expandedPlaylists={expandedPlaylists}
-          playlist={playlist}
-          preferenceSummary={preferenceSummary}
-          genres={genres}
-          moods={moods}
-          selectedGenre={selectedGenre}
-          selectedMood={selectedMood}
-          selectedArtist={selectedArtist}
-          songCount={songCount}
-          loading={loading}
-          currentSongId={currentSongId}
-          isPlaying={isPlaying}
-          similarSongsLoading={similarSongsLoading}
-          selectedBaseSong={selectedBaseSong}
-          onLogout={handleLogout}
-          onRefreshPlaylists={loadUserPlaylists}
-          onTogglePlaylist={toggleSavedPlaylist}
-          onDeletePlaylist={deletePlaylist}
-          onPlaySong={togglePlayPause}
-          onGenreChange={setSelectedGenre}
-          onMoodChange={setSelectedMood}
-          onArtistChange={setSelectedArtist}
-          onSongCountChange={setSongCount}
-          onGenerate={handleGenerate}
-          onSavePlaylist={savePlaylist}
-          onSimilarSongs={handleFindSimilarSongs}
-          onSaveSong={openSaveSongDialog}
-          error={error}
-          togglePlayPause={togglePlayPause}
-        />
-        {similarSongs.length > 0 && selectedBaseSong && (
-          <SimilarSongsModal
-            similarSongs={similarSongs}
-            selectedBaseSong={selectedBaseSong}
-            currentSongId={currentSongId}
-            isPlaying={isPlaying}
-            onClose={() => {
-              setSimilarSongs([]);
-              setSelectedBaseSong(null);
-            }}
-            onPlay={togglePlayPause}
-            onSave={openSaveSongDialog}
-          />
-        )}
-
-        <SaveSongModal
-          isOpen={saveSongDialogOpen}
-          song={selectedSong}
-          userPlaylists={userPlaylists}
-          playlistTargetMode={playlistTargetMode}
-          selectedExistingPlaylistId={selectedExistingPlaylistId}
-          newPlaylistName={newPlaylistName}
-          songSaveLoading={songSaveLoading}
-          onClose={closeSaveSongDialog}
-          onModeChange={setPlaylistTargetMode}
-          onPlaylistIdChange={setSelectedExistingPlaylistId}
-          onNewPlaylistNameChange={setNewPlaylistName}
-          onSave={handleSaveSong}
-        />
-      </div>
-    </GoogleOAuthProvider>
+        </Routes>
+      </GoogleOAuthProvider>
+    </BrowserRouter>
   );
 }
 
 export default App;
+
 

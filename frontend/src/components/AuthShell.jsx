@@ -72,6 +72,7 @@ const AuthShell = ({
               aria-label="Sign in with Google"
             />
           </div>
+          
 
           {error && (
             <div className="status-banner status-banner--error-modern" role="alert">
