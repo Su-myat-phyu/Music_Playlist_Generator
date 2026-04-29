@@ -46,6 +46,35 @@ MOOD_GENRE_MAP = {
 
 ALL_GENRES = list(GENRE_MAP.keys())
 
+GENRE_ALIASES = {
+    "hip-hop": ["hip hop", "hip-hop"],
+    "r&b": ["r&b", "rnb", "r b", "soul"],
+}
+
+MOOD_TEXT_MAP = {
+    "happy": ["uplifting", "bright", "joyful"],
+    "sad": ["melancholy", "emotional", "slow", "minor key"],
+    "energetic": ["energetic", "upbeat", "driving"],
+    "relaxing": ["calm", "peaceful", "soft"],
+    "romantic": ["romantic", "love", "warm"],
+    "focus": ["instrumental", "study", "focused"],
+    "party": ["party", "dance", "upbeat"],
+    "workout": ["workout", "high energy", "driving"],
+    "chill": ["chill", "mellow", "laid back"],
+}
+
+MOOD_AUDIO_TARGETS = {
+    "happy": [0.65, 0.75, 0.85],
+    "sad": [0.35, 0.30, 0.20],
+    "energetic": [0.90, 0.70, 0.65],
+    "relaxing": [0.25, 0.25, 0.55],
+    "romantic": [0.45, 0.55, 0.75],
+    "focus": [0.25, 0.20, 0.50],
+    "party": [0.85, 0.90, 0.80],
+    "workout": [0.95, 0.70, 0.60],
+    "chill": [0.35, 0.45, 0.60],
+}
+
 class RecommendationEngine:
     def __init__(self):
         self.tfidf = TfidfVectorizer(max_features=50, lowercase=True)
@@ -90,6 +119,145 @@ class RecommendationEngine:
         }
         return features
 
+    def _genre_terms(self, genre: str) -> List[str]:
+        genre = (genre or "").strip().lower()
+        canonical = GENRE_MAP.get(genre, genre)
+        return [canonical, *GENRE_ALIASES.get(genre, [])]
+
+    def _profile_genre_key(self, genre: str) -> Optional[str]:
+        genre = (genre or "").strip().lower()
+        if genre in ALL_GENRES:
+            return genre
+        for key, value in GENRE_MAP.items():
+            if genre == value:
+                return key
+        return None
+
+    def _matches_selected_genre(self, song: Dict[str, Any], selected_genre: str) -> bool:
+        return self._genre_match_score(song, selected_genre) > 0
+
+    def _genre_match_score(self, song: Dict[str, Any], selected_genre: str) -> float:
+        if not selected_genre:
+            return 0.0
+
+        song_genre = (song.get('genre') or '').lower()
+        genre_terms = self._genre_terms(selected_genre)
+
+        if any(term and term in song_genre for term in genre_terms):
+            return 1.0
+
+        searchable_text = " ".join([
+            str(song.get('title') or '').lower(),
+            str(song.get('album') or '').lower(),
+        ])
+        if any(term and term in searchable_text for term in genre_terms):
+            return 0.55
+
+        return 0.0
+
+    def _matches_exclusion_terms(self, song: Dict[str, Any]) -> bool:
+        title_album_artist = " ".join([
+            str(song.get('title') or '').lower(),
+            str(song.get('album') or '').lower(),
+            str(song.get('artist') or '').lower(),
+        ])
+
+        # These are common iTunes search drifts that should not override a selected genre.
+        off_topic_terms = [
+            "baby", "babies", "lullaby", "lullabies", "sleeping baby",
+            "white noise", "waterfall sounds", "dog music", "music for pets",
+            "meditation music", "nature sounds",
+        ]
+
+        return any(term in title_album_artist for term in off_topic_terms)
+
+    def _mood_match_score(self, song: Dict[str, Any], song_feat: Dict[str, Any], selected_mood: str) -> float:
+        if not selected_mood:
+            return 0.0
+
+        mood_terms = MOOD_TEXT_MAP.get(selected_mood, [])
+        song_genre = str(song.get('genre') or '').lower()
+        song_text = " ".join([
+            str(song.get('title') or '').lower(),
+            str(song.get('artist') or '').lower(),
+            str(song.get('album') or '').lower(),
+            song_genre,
+        ])
+
+        text_score = 1.0 if any(term in song_text for term in mood_terms) else 0.0
+
+        target_audio = MOOD_AUDIO_TARGETS.get(selected_mood)
+        if target_audio is None:
+            return text_score
+
+        audio_proxy = song_feat['num_features'][1:4]
+        distance = np.linalg.norm(audio_proxy - np.array(target_audio))
+        audio_score = max(0.0, 1.0 - (distance / np.sqrt(3)))
+
+        return min(1.0, (audio_score * 0.7) + (text_score * 0.3))
+
+    def _artist_match_score(self, song: Dict[str, Any], selected_artist: str) -> float:
+        if not selected_artist:
+            return 0.0
+
+        song_artist = str(song.get('artist') or '').lower()
+        song_text = " ".join([
+            song_artist,
+            str(song.get('title') or '').lower(),
+            str(song.get('album') or '').lower(),
+        ])
+
+        if selected_artist in song_artist:
+            return 1.0
+        if selected_artist in song_text:
+            return 0.6
+        return 0.0
+
+    def _active_filter_weights(self, selected_genre: str, selected_mood: str, selected_artist: str) -> Dict[str, float]:
+        base_weights = {
+            "genre": 0.40 if selected_genre else 0.0,
+            "mood": 0.35 if selected_mood else 0.0,
+            "artist": 0.25 if selected_artist else 0.0,
+        }
+        total = sum(base_weights.values())
+        if total == 0:
+            return {"genre": 0.0, "mood": 0.0, "artist": 0.0}
+        return {key: value / total for key, value in base_weights.items()}
+
+    def _format_duration(self, duration_ms: Optional[int]) -> str:
+        if not duration_ms:
+            return ""
+
+        total_seconds = max(0, int(duration_ms / 1000))
+        minutes = total_seconds // 60
+        seconds = total_seconds % 60
+        return f"{minutes}:{seconds:02d}"
+
+    def describe_song(self, song: Dict[str, Any], preferences: Dict[str, Any]) -> str:
+        "Create a short, display-friendly description for a recommended song."
+        artist = song.get("artist") or "this artist"
+        album = song.get("album") or ""
+        genre = song.get("genre") or preferences.get("genre") or "music"
+        selected_mood = (preferences.get("mood") or "").strip().lower()
+        duration = self._format_duration(song.get("duration"))
+
+        parts = [f"A {genre} track by {artist}"]
+
+        if album:
+            parts.append(f"from {album}")
+
+        description = " ".join(parts)
+
+        if selected_mood:
+            description += f", chosen for a {selected_mood} listening vibe"
+        else:
+            description += ", chosen for your current music preferences"
+
+        if duration:
+            description += f" ({duration})"
+
+        return description + "."
+
     def _build_user_profile(self, preferences: Dict[str, Any]) -> Dict[str, Any]:
         "Build user preference vector"
         genre = preferences.get('genre', '').lower()
@@ -98,7 +266,11 @@ class RecommendationEngine:
         
         # Mood genres to vector
         mood_genres = MOOD_GENRE_MAP.get(mood, [])
-        profile_genres = list(set([genre] + mood_genres)) if genre or mood else []
+        profile_genres = [
+            mapped_genre
+            for mapped_genre in {self._profile_genre_key(item) for item in [genre] + mood_genres}
+            if mapped_genre
+        ] if genre or mood else []
         
         genre_vec = self.genre_mlb.transform([profile_genres]).flatten()
         text_terms = [artist] if artist else []
@@ -124,43 +296,34 @@ class RecommendationEngine:
 
         explanation_reasons = []
 
-        # Genre similarity (60%)
-        if np.any(user_profile['genre_vec']):
-            genre_sim = cosine_similarity([user_profile['genre_vec']], [song_feat['genre_vec']])[0][0]
-            score += genre_sim * 0.6
+        if self._matches_exclusion_terms(song):
+            return -1.0, "Skipped because it appears to be background, sleep, or novelty audio."
 
-            matching_genres = [
-                ALL_GENRES[i]
-                for i in range(len(song_feat['genre_vec']))
-                if song_feat['genre_vec'][i] > 0 and user_profile['genre_vec'][i] > 0
-            ]
+        filter_weights = self._active_filter_weights(selected_genre, selected_mood, selected_artist)
 
-            if selected_genre and selected_genre in song_genre:
-                explanation_reasons.append(f"it matches your selected genre ({selected_genre})")
-            elif matching_genres:
-                explanation_reasons.append(f"its genre is similar to your preferences ({', '.join(matching_genres)})")
-            elif genre_sim > 0.2:
-                explanation_reasons.append("its genre profile is close to your selected preferences")
+        genre_match = self._genre_match_score(song, selected_genre)
+        mood_match = self._mood_match_score(song, song_feat, selected_mood)
+        artist_match = self._artist_match_score(song, selected_artist)
 
-        # Text/style similarity (30%)
+        score += genre_match * filter_weights["genre"]
+        score += mood_match * filter_weights["mood"]
+        score += artist_match * filter_weights["artist"]
+
         text_sim = cosine_similarity([user_profile['text_vec']], [song_feat['text_vec']])[0][0]
-        score += text_sim * 0.3
+        score += text_sim * 0.08
 
-        mood_genres = MOOD_GENRE_MAP.get(selected_mood, [])
-        mood_match = selected_mood and any(genre_term in song_genre for genre_term in mood_genres)
+        if selected_genre and genre_match >= 1.0:
+            explanation_reasons.append(f"it matches your selected genre ({selected_genre})")
+        elif selected_genre and genre_match > 0:
+            explanation_reasons.append(f"it is related to your selected genre ({selected_genre})")
 
-        if mood_match:
+        if selected_mood and mood_match >= 0.55:
             explanation_reasons.append(f"it fits the {selected_mood} mood through its musical style")
-        elif selected_mood and text_sim > 0.15:
-            explanation_reasons.append(f"its style is similar to songs that match a {selected_mood} mood")
 
-        # Artist match (10%)
-        artist_match = 1.0 if user_profile['target_artist'] and user_profile['target_artist'] in song_feat['artist'] else 0.0
-        score += artist_match * 0.1
-        if artist_match:
+        if selected_artist and artist_match >= 1.0:
             explanation_reasons.append(f"it matches your selected artist ({song.get('artist', '')})")
-        elif selected_artist and text_sim > 0.2:
-            explanation_reasons.append(f"it has a style related to your interest in {selected_artist}")
+        elif selected_artist and artist_match > 0:
+            explanation_reasons.append(f"it is related to your selected artist ({selected_artist})")
 
         if not explanation_reasons:
             explanation_reasons.append("it is a strong overall match based on your listening preferences")
@@ -179,7 +342,8 @@ class RecommendationEngine:
         
         for song in candidate_songs:
             score, explanation = self.score_song(song, user_profile, preferences)
-            scored_songs.append((song, score, explanation))
+            if score >= 0:
+                scored_songs.append((song, score, explanation))
         
         # Sort by score desc
         scored_songs.sort(key=lambda x: x[1], reverse=True)
@@ -187,8 +351,9 @@ class RecommendationEngine:
         recommendations = []
         for song, score, explanation in scored_songs[:limit]:
             song_copy = song.copy()
-            song_copy['recommendation_score'] = round(score, 3)
+            song_copy['recommendation_score'] = round(float(score), 3)
             song_copy['explanation'] = explanation
+            song_copy['description'] = self.describe_song(song_copy, preferences)
             recommendations.append(song_copy)
         
         return recommendations
@@ -260,6 +425,11 @@ class RecommendationEngine:
             song_copy = song.copy()
             song_copy['explanation'] = explanation
             song_copy['similarity_score'] = round(float(similarity), 3)
+            song_copy['description'] = self.describe_song(song_copy, {
+                "genre": selected_song.get("genre", ""),
+                "artist": selected_song.get("artist", ""),
+                "mood": "",
+            })
             recommendations.append(song_copy)
 
         return recommendations

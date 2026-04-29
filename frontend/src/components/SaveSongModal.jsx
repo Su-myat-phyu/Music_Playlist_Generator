@@ -1,4 +1,5 @@
 import React from 'react';
+import { getHighQualityArtwork } from '../utils/artwork';
 
 const SaveSongModal = ({
   isOpen,
@@ -17,6 +18,7 @@ const SaveSongModal = ({
   if (!isOpen || !song) return null;
 
   const defaultArtwork = 'https://via.placeholder.com/1200x1200/0f172a/e2e8f0?text=Music';
+  const artwork = getHighQualityArtwork(song.artwork) || defaultArtwork;
 
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -49,9 +51,10 @@ const SaveSongModal = ({
         <div className="cyber-save-song-preview">
           <div className="song-artwork-large">
             <img
-              src={song.artwork || defaultArtwork}
+              src={artwork}
               alt={`${song.title} artwork`}
               className="song-artwork-circle"
+              decoding="async"
             />
           </div>
           <div className="cyber-song-meta">

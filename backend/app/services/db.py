@@ -93,6 +93,38 @@ class PlaylistDB:
         )
         return playlist
 
+    def remove_song_from_playlist(
+        self, user_id: str, playlist_id: str, song_index: int
+    ) -> Optional[Dict[str, Any]]:
+        playlist = self.get_playlist(user_id, playlist_id)
+        if not playlist:
+            return None
+
+        existing_songs = playlist.get("songs", [])
+        if song_index < 0 or song_index >= len(existing_songs):
+            return None
+
+        removed_song = existing_songs[song_index]
+        updated_songs = existing_songs[:song_index] + existing_songs[song_index + 1:]
+        updated_at = datetime.utcnow()
+
+        self.playlists.update_one(
+            {"_id": playlist["_id"], "user_id": user_id},
+            {"$set": {"songs": updated_songs, "updated_at": updated_at}},
+        )
+
+        playlist["songs"] = updated_songs
+        playlist["updated_at"] = updated_at
+        self.record_activity(
+            user_id,
+            "song_deleted_from_playlist",
+            {
+                "playlist_id": str(playlist["_id"]),
+                "song_title": removed_song.get("title"),
+            },
+        )
+        return playlist
+
     def save_user(self, user_data: Dict[str, Any]) -> Dict[str, Any]:
         existing_user = self.users.find_one({"email": user_data["email"]})
         now = datetime.utcnow()

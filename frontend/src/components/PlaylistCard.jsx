@@ -1,10 +1,14 @@
 import React from 'react';
+import { getHighQualityArtwork } from '../utils/artwork';
 
   const PlaylistCard = ({
   playlist,
   isExpanded,
+  currentSongId,
+  isPlaying,
   onToggle,
   onDelete,
+  onDeleteSong,
   onPlay
 }) => {
   return (
@@ -68,13 +72,18 @@ import React from 'react';
           ) : (
             playlist.songs.map((song, index) => {
               const savedSongKey = `saved-${playlist.id}-${index}`;
+              const artwork = getHighQualityArtwork(song.artwork) || 'https://via.placeholder.com/1200x1200/0f172a/e2e8f0?text=Music';
+              const isCurrentSongPlaying = currentSongId === savedSongKey && isPlaying;
+
               return (
                 <div key={savedSongKey} className="saved-song-row">
                   <div className="saved-song-row__info">
                     <img
-                      src={song.artwork || 'https://via.placeholder.com/1200x1200/0f172a/e2e8f0?text=Music'}
+                      src={artwork}
                       alt={song.title}
                       className="saved-song-row__artwork"
+                      loading="lazy"
+                      decoding="async"
                     />
                     <div>
                       <h4 className="line-clamp-1">{song.title}</h4>
@@ -85,16 +94,24 @@ import React from 'react';
                     </div>
                   </div>
 
-            <button
-              type="button"
-              className="btn btn-ghost btn-small saved-song-row__play"
-              onClick={() => onPlay(savedSongKey, song.preview_url)}
-              disabled={!song.preview_url}
-            >
-              {!song.preview_url
-                ? 'No preview'
-                : 'Play'}
-            </button>
+                  <div className="saved-song-row__actions">
+                    <button
+                      type="button"
+                      className="btn btn-ghost btn-small saved-song-row__play"
+                      onClick={() => onPlay(savedSongKey, song.preview_url)}
+                      disabled={!song.preview_url}
+                    >
+                      {!song.preview_url ? 'No preview' : isCurrentSongPlaying ? 'Pause' : 'Play'}
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-danger btn-small"
+                      onClick={() => onDeleteSong(playlist.id, index)}
+                      title="Delete song from playlist"
+                    >
+                      Delete
+                    </button>
+                  </div>
                 </div>
               );
             })
