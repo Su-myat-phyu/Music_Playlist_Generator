@@ -14,6 +14,8 @@ const Dashboard = ({
   selectedMood,
   selectedArtist,
   songCount,
+  nlpSearchQuery,
+  nlpSearchSummary,
   loading,
   currentSongId,
   isPlaying,
@@ -23,12 +25,15 @@ const Dashboard = ({
   onRefreshPlaylists,
   onTogglePlaylist,
   onDeletePlaylist,
+  onDeleteSongFromPlaylist,
   onPlaySong,
   onGenreChange,
   onMoodChange,
   onArtistChange,
   onSongCountChange,
   onGenerate,
+  onNlpSearch,
+  onNlpSearchQueryChange,
   onClearFilters,
   onSavePlaylist,
   onSimilarSongs,
@@ -215,6 +220,29 @@ const Dashboard = ({
                 </div>
               </div>
 
+              <form onSubmit={onNlpSearch} className="nlp-search-form">
+                <label htmlFor="nlp-search">Search with natural language</label>
+                <div className="nlp-search-row">
+                  <input
+                    id="nlp-search"
+                    type="search"
+                    value={nlpSearchQuery}
+                    onChange={(e) => onNlpSearchQueryChange(e.target.value)}
+                    placeholder="sad classical songs by Adele"
+                  />
+                  <button type="submit" disabled={loading || !nlpSearchQuery.trim()} className="btn btn-primary">
+                    Search
+                  </button>
+                </div>
+                {nlpSearchSummary && (
+                  <div className="nlp-search-summary">
+                    {nlpSearchSummary.genre && <span>Genre: {nlpSearchSummary.genre}</span>}
+                    {nlpSearchSummary.mood && <span>Mood: {nlpSearchSummary.mood}</span>}
+                    {nlpSearchSummary.artist && <span>Artist: {nlpSearchSummary.artist}</span>}
+                  </div>
+                )}
+              </form>
+
               <form onSubmit={onGenerate} className="generator-form">
                 <div className="form-group">
                   <label>Genre</label>
@@ -261,15 +289,15 @@ const Dashboard = ({
                   <div className="range-wrap">
                     <input
                       type="range"
-                      min="5"
+                      min="1"
                       max="50"
-                      step="5"
+                      step="1"
                       value={songCount}
                       onChange={(e) => onSongCountChange(Number(e.target.value))}
                     />
                     <div className="range-value">{songCount}</div>
                   </div>
-                  <p className="form-helper-copy">Tip: 10-20 songs is best for quick playlist exploration.</p>
+                  <p className="form-helper-copy">Tip: 1 song is great for testing; 10-20 songs is best for playlist exploration.</p>
                 </div>
 
                 <div className="generator-actions">
@@ -337,8 +365,11 @@ const Dashboard = ({
                       key={savedPlaylist.id}
                       playlist={savedPlaylist}
                       isExpanded={!!expandedPlaylists[savedPlaylist.id]}
+                      currentSongId={currentSongId}
+                      isPlaying={isPlaying}
                       onToggle={onTogglePlaylist}
                       onDelete={onDeletePlaylist}
+                      onDeleteSong={onDeleteSongFromPlaylist}
                       onPlay={togglePlayPause}
                     />
                   ))}

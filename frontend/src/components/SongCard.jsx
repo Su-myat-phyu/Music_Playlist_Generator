@@ -1,4 +1,5 @@
 import React from 'react';
+import { getHighQualityArtwork } from '../utils/artwork';
 
 const SongCard = ({
   song,
@@ -14,6 +15,7 @@ const SongCard = ({
   saveButtonClass = 'btn btn-ghost btn-small'
 }) => {
   const defaultArtwork = 'https://via.placeholder.com/1200x1200/0f172a/e2e8f0?text=Music';
+  const artwork = getHighQualityArtwork(song.artwork) || defaultArtwork;
   
   const togglePreview = (e) => {
     e.stopPropagation();
@@ -28,9 +30,11 @@ const SongCard = ({
     <article className="song-card">
       <div className="song-card__artwork-wrap">
         <img
-          src={song.artwork || defaultArtwork}
+          src={artwork}
           alt={song.title}
           className="song-card__artwork"
+          loading="lazy"
+          decoding="async"
         />
         <button
           type="button"
@@ -49,6 +53,9 @@ const SongCard = ({
             <h3 className="line-clamp-1">{song.title}</h3>
             <p className="song-card__artist">{song.artist}</p>
             <p className="song-card__album line-clamp-1">{song.album}</p>
+            {song.description && (
+              <p className="song-card__description">{song.description}</p>
+            )}
           </div>
 
           {song.explanation && (

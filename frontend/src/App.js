@@ -69,6 +69,8 @@ function App() {
   const [selectedArtist, setSelectedArtist] = useState('');
   const [songCount, setSongCount] = useState(10);
   const [playlist, setPlaylist] = useState([]);
+  const [nlpSearchQuery, setNlpSearchQuery] = useState('');
+  const [nlpSearchSummary, setNlpSearchSummary] = useState(null);
 
   // User playlists state
   const [userPlaylists, setUserPlaylists] = useState([]);
@@ -254,6 +256,42 @@ function App() {
       });
     } catch (err) {
       console.error('Delete failed:', err);
+    }
+  };
+
+  const deleteSongFromPlaylist = async (playlistId, songIndex) => {
+    if (!token || isTokenExpired(token)) {
+      clearToken();
+      setError('Session expired. Please log in again.');
+      return;
+    }
+
+    try {
+      setError('');
+      const response = await fetch(`/playlists/${playlistId}/songs/${songIndex}`, {
+        method: 'DELETE',
+        headers: getAuthHeaders(),
+      });
+
+      if (!response.ok) {
+        if (response.status === 401) {
+          clearToken();
+          setError('Session expired. Please log in again.');
+          return;
+        }
+        const errorData = await response.json().catch(() => null);
+        throw new Error(errorData?.detail || 'Failed to delete song');
+      }
+
+      const updatedPlaylist = await response.json();
+      setUserPlaylists((prev) =>
+        prev.map((playlist) =>
+          playlist.id === updatedPlaylist.id ? updatedPlaylist : playlist
+        )
+      );
+      setSuccessMessage('Song removed from playlist.');
+    } catch (err) {
+      setError(err.message || 'Failed to delete song');
     }
   };
 
@@ -450,8 +488,66 @@ function App() {
 
       const data = await response.json();
       setPlaylist(data.playlist || []);
+      setNlpSearchSummary(null);
     } catch (err) {
       setError(err.message || 'Failed to generate playlist. Is backend running?');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleNlpSearch = async (e) => {
+    e.preventDefault();
+
+    const query = nlpSearchQuery.trim();
+    if (!query) {
+      setError('Enter a search phrase first.');
+      return;
+    }
+
+    if (audioRef.current) {
+      audioRef.current.pause();
+      setCurrentSongId(null);
+      setIsPlaying(false);
+    }
+
+    setLoading(true);
+    setError('');
+    setSuccessMessage('');
+    setPlaylist([]);
+    setSimilarSongs([]);
+    setSelectedBaseSong(null);
+
+    try {
+      const params = new URLSearchParams({
+        q: query,
+        limit: String(songCount),
+      });
+
+      const response = await fetch(`/nlp-search?${params.toString()}`, {
+        headers: getAuthHeaders(),
+      });
+
+      if (!response.ok) {
+        if (response.status === 401) {
+          clearToken();
+          setError('Session expired. Please log in again.');
+          return;
+        }
+        throw new Error(`API error: ${response.status}`);
+      }
+
+      const data = await response.json();
+      setPlaylist(data.playlist || []);
+      setNlpSearchSummary(data.parsed || null);
+
+      if (data.preferences) {
+        setSelectedGenre(data.preferences.genre || '');
+        setSelectedMood(data.preferences.mood || '');
+        setSelectedArtist(data.preferences.artist || '');
+      }
+    } catch (err) {
+      setError(err.message || 'Failed to search songs. Is backend running?');
     } finally {
       setLoading(false);
     }
@@ -514,6 +610,8 @@ function App() {
     setSelectedMood('');
     setSelectedArtist('');
     setSongCount(10);
+    setNlpSearchQuery('');
+    setNlpSearchSummary(null);
     setError('');
     setSuccessMessage('');
   };
@@ -544,6 +642,8 @@ function App() {
                 selectedMood={selectedMood}
                 selectedArtist={selectedArtist}
                 songCount={songCount}
+                nlpSearchQuery={nlpSearchQuery}
+                nlpSearchSummary={nlpSearchSummary}
                 loading={loading}
                 currentSongId={currentSongId}
                 isPlaying={isPlaying}
@@ -553,12 +653,15 @@ function App() {
                 onRefreshPlaylists={loadUserPlaylists}
                 onTogglePlaylist={toggleSavedPlaylist}
                 onDeletePlaylist={deletePlaylist}
+                onDeleteSongFromPlaylist={deleteSongFromPlaylist}
                 onPlaySong={togglePlayPause}
                 onGenreChange={setSelectedGenre}
                 onMoodChange={setSelectedMood}
                 onArtistChange={setSelectedArtist}
                 onSongCountChange={setSongCount}
                 onGenerate={handleGenerate}
+                onNlpSearch={handleNlpSearch}
+                onNlpSearchQueryChange={setNlpSearchQuery}
                 onClearFilters={clearGeneratorFilters}
                 onSavePlaylist={savePlaylist}
                 onSimilarSongs={handleFindSimilarSongs}
@@ -606,5 +709,3 @@ function App() {
 }
 
 export default App;
-
-

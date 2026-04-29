@@ -108,6 +108,29 @@ async def add_song_to_playlist(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.delete("/{playlist_id}/songs/{song_index}", response_model=PlaylistResponse)
+async def delete_song_from_playlist(
+    playlist_id: str,
+    song_index: int,
+    current_user: Dict = Depends(get_current_user)
+):
+    """Delete a specific song from an existing playlist by row index."""
+    try:
+        updated_playlist = db.remove_song_from_playlist(
+            current_user["user_id"],
+            playlist_id,
+            song_index
+        )
+        if not updated_playlist:
+            raise HTTPException(status_code=404, detail="Playlist or song not found")
+        db.update_user(current_user["user_id"], {"last_activity": datetime.utcnow()})
+        return PlaylistResponse(**serialize_playlist(updated_playlist))
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/{playlist_id}")
 async def get_playlist(playlist_id: str, current_user: Dict = Depends(get_current_user)):
     """Get single playlist with all songs"""
